@@ -3,8 +3,6 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import axios from "axios";
 import "./App.css";
 import { 
-  Line, 
-  Bar, 
   Chart as ChartJS,
   CategoryScale,
   LinearScale,
@@ -15,6 +13,7 @@ import {
   Tooltip,
   Legend
 } from 'chart.js';
+import { Line, Bar } from 'react-chartjs-2';
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { format, addDays, subDays, subMonths } from "date-fns";
