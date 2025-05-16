@@ -329,7 +329,7 @@ async def get_strategies():
         # Fixed list of options strategies with descriptions
         strategies = [
             {
-                "id": str(uuid.uuid4()),
+                "id": "covered-call",
                 "name": "Covered Call",
                 "description": "A strategy where you own the underlying stock and sell call options against it to generate income.",
                 "parameters": {
@@ -339,7 +339,7 @@ async def get_strategies():
                 }
             },
             {
-                "id": str(uuid.uuid4()),
+                "id": "cash-secured-put",
                 "name": "Cash-Secured Put",
                 "description": "A strategy where you sell a put option and set aside enough cash to buy the stock if the option is exercised.",
                 "parameters": {
@@ -349,7 +349,7 @@ async def get_strategies():
                 }
             },
             {
-                "id": str(uuid.uuid4()),
+                "id": "iron-condor",
                 "name": "Iron Condor",
                 "description": "A neutral options strategy that profits from low volatility and time decay.",
                 "parameters": {
@@ -361,7 +361,7 @@ async def get_strategies():
                 }
             },
             {
-                "id": str(uuid.uuid4()),
+                "id": "bull-call-spread",
                 "name": "Bull Call Spread",
                 "description": "A bullish, defined risk strategy that profits from a rise in the underlying asset's price.",
                 "parameters": {
@@ -371,7 +371,7 @@ async def get_strategies():
                 }
             },
             {
-                "id": str(uuid.uuid4()),
+                "id": "bear-put-spread",
                 "name": "Bear Put Spread",
                 "description": "A bearish, defined risk strategy that profits from a fall in the underlying asset's price.",
                 "parameters": {
@@ -381,7 +381,7 @@ async def get_strategies():
                 }
             },
             {
-                "id": str(uuid.uuid4()),
+                "id": "calendar-spread",
                 "name": "Calendar Spread",
                 "description": "A strategy that involves selling short-term options and buying longer-term options at the same strike price.",
                 "parameters": {
@@ -391,7 +391,7 @@ async def get_strategies():
                 }
             },
             {
-                "id": str(uuid.uuid4()),
+                "id": "butterfly-spread",
                 "name": "Butterfly Spread",
                 "description": "A neutral strategy with limited risk and profit potential, created with three strikes.",
                 "parameters": {
@@ -401,7 +401,7 @@ async def get_strategies():
                 }
             },
             {
-                "id": str(uuid.uuid4()),
+                "id": "straddle",
                 "name": "Straddle",
                 "description": "Buying calls and puts at the same strike price to profit from high volatility.",
                 "parameters": {
@@ -410,7 +410,7 @@ async def get_strategies():
                 }
             },
             {
-                "id": str(uuid.uuid4()),
+                "id": "strangle",
                 "name": "Strangle",
                 "description": "Buying OTM calls and puts to profit from high volatility at a lower cost than a straddle.",
                 "parameters": {
@@ -420,7 +420,7 @@ async def get_strategies():
                 }
             },
             {
-                "id": str(uuid.uuid4()),
+                "id": "diagonal-spread",
                 "name": "Diagonal Spread",
                 "description": "A strategy similar to a calendar spread but with different strike prices.",
                 "parameters": {
