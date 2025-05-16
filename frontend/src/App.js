@@ -681,6 +681,8 @@ const Strategies = () => {
   const [strategies, setStrategies] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedStrategy, setSelectedStrategy] = useState(null);
+  const [showBuilder, setShowBuilder] = useState(false);
+  const [symbol, setSymbol] = useState("SPY");
 
   const fetchStrategies = async () => {
     try {
@@ -698,93 +700,131 @@ const Strategies = () => {
     fetchStrategies();
   }, []);
 
+  const handleCreateStrategy = () => {
+    if (selectedStrategy) {
+      setShowBuilder(true);
+    }
+  };
+
   return (
     <div>
       <h2 className="text-2xl font-bold mb-4">Options Trading Strategies</h2>
       
-      {loading ? (
-        <div className="flex justify-center my-10">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-700"></div>
-        </div>
+      {showBuilder ? (
+        <StrategyBuilder 
+          strategy={selectedStrategy} 
+          symbol={symbol}
+          onClose={() => setShowBuilder(false)}
+          onSymbolChange={setSymbol}
+        />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {strategies.map(strategy => (
-            <div 
-              key={strategy.id} 
-              className={`bg-white rounded-lg shadow p-4 cursor-pointer transition-all hover:shadow-lg ${
-                selectedStrategy?.id === strategy.id ? 'ring-2 ring-blue-500' : ''
-              }`}
-              onClick={() => setSelectedStrategy(strategy)}
-            >
-              <h3 className="text-lg font-medium">{strategy.name}</h3>
-              <p className="text-gray-600 text-sm mt-2">{strategy.description}</p>
-            </div>
-          ))}
-        </div>
-      )}
-      
-      {selectedStrategy && (
-        <div className="mt-8 bg-white rounded-lg shadow p-6">
-          <div className="flex justify-between items-start">
-            <h3 className="text-xl font-bold">{selectedStrategy.name}</h3>
-            <button 
-              onClick={() => setSelectedStrategy(null)}
-              className="text-gray-500 hover:text-gray-700"
-            >
-              &times;
-            </button>
-          </div>
-          
-          <p className="mt-4">{selectedStrategy.description}</p>
-          
-          <div className="mt-6">
-            <h4 className="font-medium mb-2">Strategy Parameters</h4>
-            <div className="bg-gray-50 p-4 rounded">
-              <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2">
-                {Object.entries(selectedStrategy.parameters).map(([key, value]) => (
-                  <div key={key} className="flex">
-                    <dt className="text-gray-600 w-1/2">{key.replace(/_/g, ' ')}:</dt>
-                    <dd className="font-medium w-1/2">{value}</dd>
-                  </div>
-                ))}
-              </dl>
+        <>
+          <div className="mb-6">
+            <div className="flex gap-4 items-center mb-4">
+              <input
+                type="text"
+                value={symbol}
+                onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+                placeholder="Symbol (e.g., SPY)"
+                className="border rounded p-2"
+              />
+              <button
+                onClick={handleCreateStrategy}
+                disabled={!selectedStrategy}
+                className={`bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 ${
+                  !selectedStrategy ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                Create Strategy
+              </button>
             </div>
           </div>
+
+          {loading ? (
+            <div className="flex justify-center my-10">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-700"></div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {strategies.map(strategy => (
+                <div 
+                  key={strategy.id} 
+                  className={`bg-white rounded-lg shadow p-4 cursor-pointer transition-all hover:shadow-lg ${
+                    selectedStrategy?.id === strategy.id ? 'ring-2 ring-blue-500' : ''
+                  }`}
+                  onClick={() => setSelectedStrategy(strategy)}
+                >
+                  <h3 className="text-lg font-medium">{strategy.name}</h3>
+                  <p className="text-gray-600 text-sm mt-2">{strategy.description}</p>
+                </div>
+              ))}
+            </div>
+          )}
           
-          <div className="mt-6 border-t pt-4">
-            <h4 className="font-medium mb-2">Ideal Market Conditions</h4>
-            {selectedStrategy.name === "Covered Call" && (
-              <p>Best in sideways or slightly bullish markets.</p>
-            )}
-            {selectedStrategy.name === "Cash-Secured Put" && (
-              <p>Best in sideways or slightly bullish markets.</p>
-            )}
-            {selectedStrategy.name === "Iron Condor" && (
-              <p>Best in sideways, low-volatility markets.</p>
-            )}
-            {selectedStrategy.name === "Bull Call Spread" && (
-              <p>Best in moderately bullish markets.</p>
-            )}
-            {selectedStrategy.name === "Bear Put Spread" && (
-              <p>Best in moderately bearish markets.</p>
-            )}
-            {selectedStrategy.name === "Calendar Spread" && (
-              <p>Best in sideways markets with increasing volatility.</p>
-            )}
-            {selectedStrategy.name === "Butterfly Spread" && (
-              <p>Best when you expect the price to be near a specific target at expiration.</p>
-            )}
-            {selectedStrategy.name === "Straddle" && (
-              <p>Best when expecting significant movement but unsure of direction.</p>
-            )}
-            {selectedStrategy.name === "Strangle" && (
-              <p>Best when expecting significant movement but unsure of direction, cheaper than straddle.</p>
-            )}
-            {selectedStrategy.name === "Diagonal Spread" && (
-              <p>Best in sideways to slightly bullish/bearish markets with increasing volatility.</p>
-            )}
-          </div>
-        </div>
+          {selectedStrategy && (
+            <div className="mt-8 bg-white rounded-lg shadow p-6">
+              <div className="flex justify-between items-start">
+                <h3 className="text-xl font-bold">{selectedStrategy.name}</h3>
+                <button 
+                  onClick={() => setSelectedStrategy(null)}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  &times;
+                </button>
+              </div>
+              
+              <p className="mt-4">{selectedStrategy.description}</p>
+              
+              <div className="mt-6">
+                <h4 className="font-medium mb-2">Strategy Parameters</h4>
+                <div className="bg-gray-50 p-4 rounded">
+                  <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2">
+                    {Object.entries(selectedStrategy.parameters).map(([key, value]) => (
+                      <div key={key} className="flex">
+                        <dt className="text-gray-600 w-1/2">{key.replace(/_/g, ' ')}:</dt>
+                        <dd className="font-medium w-1/2">{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              </div>
+              
+              <div className="mt-6 border-t pt-4">
+                <h4 className="font-medium mb-2">Ideal Market Conditions</h4>
+                {selectedStrategy.name === "Covered Call" && (
+                  <p>Best in sideways or slightly bullish markets.</p>
+                )}
+                {selectedStrategy.name === "Cash-Secured Put" && (
+                  <p>Best in sideways or slightly bullish markets.</p>
+                )}
+                {selectedStrategy.name === "Iron Condor" && (
+                  <p>Best in sideways, low-volatility markets.</p>
+                )}
+                {selectedStrategy.name === "Bull Call Spread" && (
+                  <p>Best in moderately bullish markets.</p>
+                )}
+                {selectedStrategy.name === "Bear Put Spread" && (
+                  <p>Best in moderately bearish markets.</p>
+                )}
+                {selectedStrategy.name === "Calendar Spread" && (
+                  <p>Best in sideways markets with increasing volatility.</p>
+                )}
+                {selectedStrategy.name === "Butterfly Spread" && (
+                  <p>Best when you expect the price to be near a specific target at expiration.</p>
+                )}
+                {selectedStrategy.name === "Straddle" && (
+                  <p>Best when expecting significant movement but unsure of direction.</p>
+                )}
+                {selectedStrategy.name === "Strangle" && (
+                  <p>Best when expecting significant movement but unsure of direction, cheaper than straddle.</p>
+                )}
+                {selectedStrategy.name === "Diagonal Spread" && (
+                  <p>Best in sideways to slightly bullish/bearish markets with increasing volatility.</p>
+                )}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
