@@ -635,6 +635,151 @@ async def get_backtest_results():
 # Include the router in the main app
 app.include_router(api_router)
 
+# Add P&L calculation endpoints
+@api_router.post("/calculate-strategy-pnl")
+async def calculate_strategy_pnl(
+    request: dict
+):
+    """Calculate P&L for a given options strategy at different price points"""
+    try:
+        strategy_type = request.get("strategy_type")
+        underlying_price = request.get("underlying_price", 0)
+        legs = request.get("legs", [])
+        price_range_pct = request.get("price_range_pct", 20)  # Default: ±20%
+        
+        if not strategy_type or not underlying_price or not legs:
+            return {"error": "Missing required parameters"}
+        
+        # Calculate price range for P&L curve
+        min_price = underlying_price * (1 - price_range_pct / 100)
+        max_price = underlying_price * (1 + price_range_pct / 100)
+        price_points = 50  # Number of points in the P&L curve
+        prices = np.linspace(min_price, max_price, price_points)
+        
+        # Function to calculate option price at expiration (intrinsic value)
+        def option_value_at_expiry(option_type, strike, underlying):
+            if option_type == "call":
+                return max(0, underlying - strike)
+            elif option_type == "put":
+                return max(0, strike - underlying)
+            return 0
+        
+        # Calculate P&L at each price point
+        pnl_curve = []
+        initial_cost = 0
+        
+        # Calculate initial cost/credit of the position
+        for leg in legs:
+            option_type = leg.get("option_type", "")
+            quantity = leg.get("quantity", 0)
+            price = leg.get("price", 0)
+            initial_cost += price * quantity * 100  # Each contract is for 100 shares
+        
+        for price in prices:
+            total_pnl = -initial_cost  # Start with the initial cost/credit
+            
+            # Add the value at expiration for each leg
+            for leg in legs:
+                option_type = leg.get("option_type", "")
+                strike = leg.get("strike", 0)
+                quantity = leg.get("quantity", 0)
+                
+                # Calculate the value at this price point
+                value = option_value_at_expiry(option_type, strike, price)
+                total_pnl += value * quantity * 100  # Each contract is for 100 shares
+            
+            pnl_curve.append({
+                "price": float(price),
+                "pnl": float(total_pnl)
+            })
+        
+        # Find max profit, max loss, and breakeven points
+        pnl_values = [point["pnl"] for point in pnl_curve]
+        max_profit = max(pnl_values)
+        max_loss = min(pnl_values)
+        
+        # Find breakeven points (where P&L crosses zero)
+        breakeven_points = []
+        for i in range(1, len(pnl_curve)):
+            if (pnl_curve[i-1]["pnl"] <= 0 and pnl_curve[i]["pnl"] >= 0) or \
+               (pnl_curve[i-1]["pnl"] >= 0 and pnl_curve[i]["pnl"] <= 0):
+                # Linear interpolation to find more accurate breakeven point
+                p1 = pnl_curve[i-1]["price"]
+                p2 = pnl_curve[i]["price"]
+                pnl1 = pnl_curve[i-1]["pnl"]
+                pnl2 = pnl_curve[i]["pnl"]
+                
+                # Avoid division by zero
+                if pnl2 - pnl1 != 0:
+                    breakeven_price = p1 + (p2 - p1) * (-pnl1) / (pnl2 - pnl1)
+                    breakeven_points.append(float(breakeven_price))
+        
+        return {
+            "strategy_type": strategy_type,
+            "underlying_price": underlying_price,
+            "pnl_curve": pnl_curve,
+            "max_profit": float(max_profit),
+            "max_loss": float(max_loss),
+            "breakeven_points": breakeven_points,
+            "initial_cost": float(initial_cost)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in calculate_strategy_pnl: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/submit-trade")
+async def submit_trade(
+    request: dict
+):
+    """Submit a trade based on a strategy"""
+    try:
+        strategy_id = request.get("strategy_id")
+        symbol = request.get("symbol")
+        legs = request.get("legs", [])
+        
+        if not strategy_id or not symbol or not legs:
+            return {"error": "Missing required parameters"}
+        
+        # Create a trade record in the database
+        trade = {
+            "id": str(uuid.uuid4()),
+            "strategy_id": strategy_id,
+            "symbol": symbol,
+            "legs": legs,
+            "status": "simulated",  # In a real system, this would be 'pending', 'executed', etc.
+            "created_at": datetime.utcnow()
+        }
+        
+        # Store the trade in MongoDB
+        await db.trades.insert_one(trade)
+        
+        # Remove the MongoDB _id for response
+        trade["_id"] = str(trade["_id"])
+        
+        return trade
+        
+    except Exception as e:
+        logger.error(f"Error in submit_trade: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/trades")
+async def get_trades():
+    """Get all trades"""
+    try:
+        trades = await db.trades.find().to_list(100)
+        
+        # Convert ObjectId to string
+        for trade in trades:
+            trade["_id"] = str(trade["_id"])
+            
+        return trades
+    except Exception as e:
+        logger.error(f"Error in get_trades: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Enable CORS
 app.add_middleware(
     CORSMiddleware,
