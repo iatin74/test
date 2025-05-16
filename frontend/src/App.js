@@ -830,6 +830,779 @@ const Strategies = () => {
   );
 };
 
+// Strategy Builder Component
+const StrategyBuilder = ({ strategy, symbol, onClose, onSymbolChange }) => {
+  const [optionsChain, setOptionsChain] = useState(null);
+  const [expirations, setExpirations] = useState([]);
+  const [selectedExpiration, setSelectedExpiration] = useState("");
+  const [currentPrice, setCurrentPrice] = useState(0);
+  const [legs, setLegs] = useState([]);
+  const [pnlData, setPnlData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [tradeSubmitted, setTradeSubmitted] = useState(false);
+  const [tradeResult, setTradeResult] = useState(null);
+
+  const fetchOptionsData = async () => {
+    try {
+      setLoading(true);
+      
+      // Fetch market data to get current price
+      const marketResponse = await axios.get(`${API}/market/${symbol}`);
+      if (marketResponse.data.history && marketResponse.data.history.day) {
+        const lastPrice = marketResponse.data.history.day.slice(-1)[0].close;
+        setCurrentPrice(lastPrice);
+      }
+      
+      // Fetch options chain
+      const optionsResponse = await axios.get(
+        `${API}/options/${symbol}${selectedExpiration ? `?expiration=${selectedExpiration}` : ''}`
+      );
+      
+      if (optionsResponse.data.options && optionsResponse.data.options.option) {
+        setOptionsChain(optionsResponse.data);
+        
+        // Extract expirations
+        const dates = [...new Set(optionsResponse.data.options.option.map(o => o.expiration_date))];
+        setExpirations(dates);
+        
+        // Select first expiration if none selected
+        if (!selectedExpiration && dates.length > 0) {
+          setSelectedExpiration(dates[0]);
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching options data:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchOptionsData();
+  }, [symbol, selectedExpiration]);
+
+  // Generate pre-filled legs based on selected strategy
+  useEffect(() => {
+    if (strategy && currentPrice > 0) {
+      let newLegs = [];
+      
+      // Different leg setup based on strategy type
+      switch (strategy.id) {
+        case "covered-call":
+          // Stock leg + Short call
+          newLegs = [
+            {
+              id: "stock",
+              type: "stock",
+              action: "buy",
+              quantity: 100,
+              price: currentPrice,
+              strike: null,
+              option_type: null,
+              isStock: true
+            },
+            {
+              id: `call-${Date.now()}`,
+              type: "option",
+              action: "sell",
+              quantity: 1,
+              price: 0,
+              strike: Math.round(currentPrice * (1 + strategy.parameters.option_strike_pct / 100)),
+              option_type: "call",
+              isStock: false
+            }
+          ];
+          break;
+          
+        case "cash-secured-put":
+          // Short put
+          newLegs = [
+            {
+              id: `put-${Date.now()}`,
+              type: "option",
+              action: "sell",
+              quantity: 1,
+              price: 0,
+              strike: Math.round(currentPrice * (1 + strategy.parameters.option_strike_pct / 100)),
+              option_type: "put",
+              isStock: false
+            }
+          ];
+          break;
+          
+        case "iron-condor":
+          // Bull put spread + bear call spread
+          const lowerPutStrike = Math.round(currentPrice * (1 - strategy.parameters.put_wing_otm_pct / 100));
+          const upperPutStrike = lowerPutStrike + strategy.parameters.put_spread_width;
+          const lowerCallStrike = Math.round(currentPrice * (1 + strategy.parameters.call_wing_otm_pct / 100));
+          const upperCallStrike = lowerCallStrike + strategy.parameters.call_spread_width;
+          
+          newLegs = [
+            {
+              id: `put-short-${Date.now()}`,
+              type: "option",
+              action: "sell",
+              quantity: 1,
+              price: 0,
+              strike: upperPutStrike,
+              option_type: "put",
+              isStock: false
+            },
+            {
+              id: `put-long-${Date.now()}`,
+              type: "option",
+              action: "buy",
+              quantity: 1,
+              price: 0,
+              strike: lowerPutStrike,
+              option_type: "put",
+              isStock: false
+            },
+            {
+              id: `call-short-${Date.now()}`,
+              type: "option",
+              action: "sell",
+              quantity: 1,
+              price: 0,
+              strike: lowerCallStrike,
+              option_type: "call",
+              isStock: false
+            },
+            {
+              id: `call-long-${Date.now()}`,
+              type: "option",
+              action: "buy",
+              quantity: 1,
+              price: 0,
+              strike: upperCallStrike,
+              option_type: "call",
+              isStock: false
+            }
+          ];
+          break;
+          
+        case "bull-call-spread":
+          const lowerStrike = Math.round(currentPrice * (1 + strategy.parameters.lower_strike_pct / 100));
+          const upperStrike = lowerStrike + strategy.parameters.width;
+          
+          newLegs = [
+            {
+              id: `call-long-${Date.now()}`,
+              type: "option",
+              action: "buy",
+              quantity: 1,
+              price: 0,
+              strike: lowerStrike,
+              option_type: "call",
+              isStock: false
+            },
+            {
+              id: `call-short-${Date.now()}`,
+              type: "option",
+              action: "sell",
+              quantity: 1,
+              price: 0,
+              strike: upperStrike,
+              option_type: "call",
+              isStock: false
+            }
+          ];
+          break;
+          
+        case "bear-put-spread":
+          const upperPStrike = Math.round(currentPrice * (1 + strategy.parameters.upper_strike_pct / 100));
+          const lowerPStrike = upperPStrike - strategy.parameters.width;
+          
+          newLegs = [
+            {
+              id: `put-long-${Date.now()}`,
+              type: "option",
+              action: "buy",
+              quantity: 1,
+              price: 0,
+              strike: upperPStrike,
+              option_type: "put",
+              isStock: false
+            },
+            {
+              id: `put-short-${Date.now()}`,
+              type: "option",
+              action: "sell",
+              quantity: 1,
+              price: 0,
+              strike: lowerPStrike,
+              option_type: "put",
+              isStock: false
+            }
+          ];
+          break;
+          
+        case "straddle":
+          const atmStrike = Math.round(currentPrice);
+          
+          newLegs = [
+            {
+              id: `call-long-${Date.now()}`,
+              type: "option",
+              action: "buy",
+              quantity: 1,
+              price: 0,
+              strike: atmStrike,
+              option_type: "call",
+              isStock: false
+            },
+            {
+              id: `put-long-${Date.now()}`,
+              type: "option",
+              action: "buy",
+              quantity: 1,
+              price: 0,
+              strike: atmStrike,
+              option_type: "put",
+              isStock: false
+            }
+          ];
+          break;
+          
+        default:
+          // Default to empty legs
+          newLegs = [];
+      }
+      
+      // Find and set option prices from the chain
+      if (optionsChain && optionsChain.options && optionsChain.options.option) {
+        newLegs = newLegs.map(leg => {
+          if (!leg.isStock && leg.strike) {
+            // Find matching option in the chain
+            const option = optionsChain.options.option.find(
+              o => o.option_type === leg.option_type && o.strike === leg.strike
+            );
+            
+            if (option) {
+              return {
+                ...leg,
+                price: leg.action === "buy" ? option.ask : option.bid
+              };
+            }
+          }
+          return leg;
+        });
+      }
+      
+      setLegs(newLegs);
+    }
+  }, [strategy, currentPrice, optionsChain]);
+
+  // Calculate P&L whenever legs change
+  useEffect(() => {
+    calculatePnL();
+  }, [legs]);
+
+  const calculatePnL = async () => {
+    if (legs.length === 0 || !currentPrice) return;
+    
+    try {
+      const pnlLegs = legs.map(leg => {
+        if (leg.isStock) {
+          return {
+            type: leg.type,
+            quantity: leg.action === "buy" ? leg.quantity : -leg.quantity,
+            price: leg.price
+          };
+        } else {
+          return {
+            option_type: leg.option_type,
+            quantity: leg.action === "buy" ? leg.quantity : -leg.quantity,
+            price: leg.price,
+            strike: leg.strike
+          };
+        }
+      });
+      
+      const response = await axios.post(`${API}/calculate-strategy-pnl`, {
+        strategy_type: strategy.name,
+        underlying_price: currentPrice,
+        legs: pnlLegs,
+        price_range_pct: 20
+      });
+      
+      setPnlData(response.data);
+    } catch (error) {
+      console.error("Error calculating P&L:", error);
+    }
+  };
+
+  const handleAddLeg = (type) => {
+    const newLeg = {
+      id: `${type}-${Date.now()}`,
+      type: type === "stock" ? "stock" : "option",
+      action: "buy",
+      quantity: type === "stock" ? 100 : 1,
+      price: type === "stock" ? currentPrice : 0,
+      strike: type === "stock" ? null : Math.round(currentPrice),
+      option_type: type === "stock" ? null : "call",
+      isStock: type === "stock"
+    };
+    
+    setLegs([...legs, newLeg]);
+  };
+
+  const handleRemoveLeg = (id) => {
+    setLegs(legs.filter(leg => leg.id !== id));
+  };
+
+  const handleLegChange = (id, field, value) => {
+    setLegs(prevLegs => prevLegs.map(leg => {
+      if (leg.id === id) {
+        const updatedLeg = { ...leg, [field]: value };
+        
+        // If changing the strike or option type, try to update the price from the options chain
+        if ((field === 'strike' || field === 'option_type') && optionsChain && optionsChain.options) {
+          const option = optionsChain.options.option.find(
+            o => o.option_type === updatedLeg.option_type && o.strike === updatedLeg.strike
+          );
+          
+          if (option) {
+            updatedLeg.price = updatedLeg.action === "buy" ? option.ask : option.bid;
+          }
+        }
+        
+        return updatedLeg;
+      }
+      return leg;
+    }));
+  };
+
+  const handleSubmitTrade = async () => {
+    try {
+      setLoading(true);
+      
+      const response = await axios.post(`${API}/submit-trade`, {
+        strategy_id: strategy.id,
+        symbol,
+        legs: legs.map(leg => ({
+          type: leg.type,
+          action: leg.action,
+          quantity: leg.quantity,
+          price: leg.price,
+          strike: leg.strike,
+          option_type: leg.option_type
+        }))
+      });
+      
+      setTradeResult(response.data);
+      setTradeSubmitted(true);
+    } catch (error) {
+      console.error("Error submitting trade:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Helper function to find option price in chain
+  const findOptionPrice = (optionType, strike, action) => {
+    if (!optionsChain || !optionsChain.options || !optionsChain.options.option) return null;
+    
+    const option = optionsChain.options.option.find(
+      o => o.option_type === optionType && o.strike === strike
+    );
+    
+    if (option) {
+      return action === "buy" ? option.ask : option.bid;
+    }
+    
+    return null;
+  };
+
+  // Helper function to format price
+  const formatPrice = (price) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD'
+    }).format(price);
+  };
+
+  // Prepare chart data for P&L
+  const pnlChartData = pnlData ? {
+    labels: pnlData.pnl_curve.map(point => point.price.toFixed(2)),
+    datasets: [
+      {
+        label: 'Profit/Loss at Expiration',
+        data: pnlData.pnl_curve.map(point => point.pnl),
+        borderColor: 'rgb(75, 192, 192)',
+        backgroundColor: 'rgba(75, 192, 192, 0.5)',
+        fill: false,
+        tension: 0.1
+      }
+    ]
+  } : null;
+  
+  const pnlChartOptions = {
+    responsive: true,
+    plugins: {
+      title: {
+        display: true,
+        text: `${strategy.name} P&L at Expiration`
+      },
+      tooltip: {
+        callbacks: {
+          label: function(context) {
+            return `P&L: ${formatPrice(context.raw)}`;
+          },
+          title: function(tooltipItems) {
+            return `Price: ${formatPrice(parseFloat(tooltipItems[0].label))}`;
+          }
+        }
+      }
+    },
+    scales: {
+      x: {
+        title: {
+          display: true,
+          text: 'Underlying Price'
+        }
+      },
+      y: {
+        title: {
+          display: true,
+          text: 'Profit/Loss ($)'
+        },
+        ticks: {
+          callback: function(value) {
+            return formatPrice(value);
+          }
+        }
+      }
+    }
+  };
+
+  if (tradeSubmitted) {
+    return (
+      <div className="bg-white rounded-lg shadow p-6">
+        <h3 className="text-xl font-bold mb-4">Trade Submitted Successfully</h3>
+        
+        <div className="bg-green-50 border border-green-200 rounded p-4 mb-6">
+          <p className="text-green-800">Your {strategy.name} trade for {symbol} has been submitted.</p>
+        </div>
+        
+        <div className="mb-6">
+          <h4 className="font-medium mb-2">Trade Details</h4>
+          <div className="bg-gray-50 p-4 rounded">
+            <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2">
+              <div className="flex">
+                <dt className="text-gray-600 w-1/2">Strategy:</dt>
+                <dd className="font-medium w-1/2">{strategy.name}</dd>
+              </div>
+              <div className="flex">
+                <dt className="text-gray-600 w-1/2">Symbol:</dt>
+                <dd className="font-medium w-1/2">{symbol}</dd>
+              </div>
+              <div className="flex">
+                <dt className="text-gray-600 w-1/2">Status:</dt>
+                <dd className="font-medium w-1/2">{tradeResult.status}</dd>
+              </div>
+              <div className="flex">
+                <dt className="text-gray-600 w-1/2">Date:</dt>
+                <dd className="font-medium w-1/2">{new Date(tradeResult.created_at).toLocaleString()}</dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+        
+        <div className="mb-6">
+          <h4 className="font-medium mb-2">Legs</h4>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Quantity</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Strike</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Option Type</th>
+                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Price</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {tradeResult.legs.map((leg, idx) => (
+                  <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                    <td className="px-4 py-2 text-sm text-gray-900">{leg.type}</td>
+                    <td className="px-4 py-2 text-sm text-gray-900">{leg.action}</td>
+                    <td className="px-4 py-2 text-sm text-gray-900">{leg.quantity}</td>
+                    <td className="px-4 py-2 text-sm text-gray-900">{leg.strike || 'N/A'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-900">{leg.option_type || 'N/A'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-900 text-right">{formatPrice(leg.price)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+        <div className="flex justify-end">
+          <button
+            onClick={onClose}
+            className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded mr-2"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-lg shadow p-6">
+      <div className="flex justify-between items-center mb-6">
+        <h3 className="text-xl font-bold">{strategy.name} Builder</h3>
+        <button 
+          onClick={onClose}
+          className="text-gray-500 hover:text-gray-700"
+        >
+          &times;
+        </button>
+      </div>
+      
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        {/* Left Column: Symbol & Expiration */}
+        <div>
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Symbol</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={symbol}
+                onChange={(e) => {
+                  const newSymbol = e.target.value.toUpperCase();
+                  if (onSymbolChange) onSymbolChange(newSymbol);
+                }}
+                className="border rounded p-2 w-full"
+              />
+              <button
+                onClick={fetchOptionsData}
+                className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
+              >
+                ↻
+              </button>
+            </div>
+          </div>
+          
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Expiration</label>
+            <select
+              value={selectedExpiration}
+              onChange={(e) => setSelectedExpiration(e.target.value)}
+              className="border rounded p-2 w-full"
+            >
+              {expirations.map(exp => (
+                <option key={exp} value={exp}>{exp}</option>
+              ))}
+            </select>
+          </div>
+          
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Current Price</label>
+            <div className="text-xl font-bold">{formatPrice(currentPrice)}</div>
+          </div>
+          
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Add Leg</label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleAddLeg("option")}
+                className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
+              >
+                Add Option
+              </button>
+              <button
+                onClick={() => handleAddLeg("stock")}
+                className="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700"
+              >
+                Add Stock
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        {/* Middle Column: Legs Configuration */}
+        <div className="col-span-2">
+          <h4 className="font-medium mb-2">Strategy Legs</h4>
+          
+          {legs.length === 0 ? (
+            <div className="bg-gray-50 p-4 text-center text-gray-500 rounded">
+              Add legs to your strategy
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {legs.map(leg => (
+                <div key={leg.id} className="bg-gray-50 p-4 rounded">
+                  <div className="flex justify-between items-center mb-2">
+                    <h5 className="font-medium">{leg.isStock ? 'Stock' : 'Option'} Leg</h5>
+                    <button
+                      onClick={() => handleRemoveLeg(leg.id)}
+                      className="text-red-500 hover:text-red-700"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Action</label>
+                      <select
+                        value={leg.action}
+                        onChange={(e) => handleLegChange(leg.id, 'action', e.target.value)}
+                        className="border rounded p-2 w-full"
+                      >
+                        <option value="buy">Buy</option>
+                        <option value="sell">Sell</option>
+                      </select>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Quantity</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={leg.quantity}
+                        onChange={(e) => handleLegChange(leg.id, 'quantity', parseInt(e.target.value))}
+                        className="border rounded p-2 w-full"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Price</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={leg.price}
+                        onChange={(e) => handleLegChange(leg.id, 'price', parseFloat(e.target.value))}
+                        className="border rounded p-2 w-full"
+                      />
+                    </div>
+                    
+                    {!leg.isStock && (
+                      <>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Option Type</label>
+                          <select
+                            value={leg.option_type}
+                            onChange={(e) => handleLegChange(leg.id, 'option_type', e.target.value)}
+                            className="border rounded p-2 w-full"
+                          >
+                            <option value="call">Call</option>
+                            <option value="put">Put</option>
+                          </select>
+                        </div>
+                        
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Strike</label>
+                          <select
+                            value={leg.strike || ""}
+                            onChange={(e) => handleLegChange(leg.id, 'strike', parseFloat(e.target.value))}
+                            className="border rounded p-2 w-full"
+                          >
+                            <option value="">Select Strike</option>
+                            {optionsChain?.options?.option
+                              ?.filter(o => o.option_type === leg.option_type)
+                              ?.map(o => o.strike)
+                              ?.filter((v, i, a) => a.indexOf(v) === i) // Get unique strikes
+                              ?.sort((a, b) => a - b)
+                              ?.map(strike => (
+                                <option key={strike} value={strike}>
+                                  {strike} {strike < currentPrice ? '(ITM)' : strike > currentPrice ? '(OTM)' : '(ATM)'}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
+                        
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Market Price</label>
+                          <div className="p-2 bg-gray-100 rounded text-center">
+                            {leg.strike ? (
+                              formatPrice(findOptionPrice(leg.option_type, leg.strike, leg.action) || 0)
+                            ) : (
+                              'Select strike'
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+      
+      {/* P&L Chart */}
+      {pnlData && (
+        <div className="mt-8">
+          <h4 className="font-medium mb-2">Profit/Loss at Expiration</h4>
+          
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+            <div className="bg-gray-50 p-4 rounded">
+              <p className="text-sm text-gray-500">Max Profit</p>
+              <p className={`text-xl font-bold ${pnlData.max_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {formatPrice(pnlData.max_profit)}
+              </p>
+            </div>
+            
+            <div className="bg-gray-50 p-4 rounded">
+              <p className="text-sm text-gray-500">Max Loss</p>
+              <p className={`text-xl font-bold ${pnlData.max_loss >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {formatPrice(pnlData.max_loss)}
+              </p>
+            </div>
+            
+            <div className="bg-gray-50 p-4 rounded">
+              <p className="text-sm text-gray-500">Initial Cost</p>
+              <p className="text-xl font-bold">
+                {formatPrice(pnlData.initial_cost)}
+              </p>
+            </div>
+            
+            <div className="bg-gray-50 p-4 rounded">
+              <p className="text-sm text-gray-500">Breakeven Points</p>
+              <p className="text-xl font-bold">
+                {pnlData.breakeven_points.length > 0 
+                  ? pnlData.breakeven_points.map(b => formatPrice(b)).join(', ')
+                  : 'None'
+                }
+              </p>
+            </div>
+          </div>
+          
+          <div className="bg-white p-4 rounded mb-6 h-80">
+            <Line data={pnlChartData} options={pnlChartOptions} />
+          </div>
+        </div>
+      )}
+      
+      <div className="mt-6 flex justify-end">
+        <button
+          onClick={onClose}
+          className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded mr-2"
+        >
+          Cancel
+        </button>
+        
+        <button
+          onClick={handleSubmitTrade}
+          disabled={loading || legs.length === 0}
+          className={`bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 ${
+            loading || legs.length === 0 ? 'opacity-50 cursor-not-allowed' : ''
+          }`}
+        >
+          {loading ? 'Processing...' : 'Submit Trade'}
+        </button>
+      </div>
+    </div>
+  );
+};
+
 // Backtesting Component
 const Backtesting = () => {
   const [symbol, setSymbol] = useState("SPY");
