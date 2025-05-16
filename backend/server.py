@@ -1,6 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi_utils.timing import add_timing_middleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from dotenv import load_dotenv
 import os
@@ -41,9 +40,6 @@ app = FastAPI(title="Options Trading Dashboard API")
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
-
-# Add timing middleware for performance monitoring
-add_timing_middleware(app, record=logger.info, prefix="app", exclude="untimed")
 
 # Models
 class OptionContract(BaseModel):
